@@ -40,6 +40,7 @@ INSTANCE_ID=$(openstack server create \
   --key-name "$OVH_SSH_KEY_NAME" \
   --security-group "$OVH_SECURITY_GROUP" \
   --network "$OVH_NETWORK_ID" \
+  --user-data "$SCRIPT_DIR/startup.sh" \
   --wait \
   -f value -c id \
   "$INSTANCE_NAME")

@@ -316,7 +316,7 @@ Compare: GitHub Codespaces for same usage ≈ $7–15/month.
 
 - **SSH key auth only** — no password auth on instances
 - **API keys encrypted** in Object Storage (use `age` or `gpg` encryption)
-- **Firewall**: OVH Security Groups — allow SSH (22) only; RC uses outbound HTTPS/WSS (no inbound ports needed)
+- **Firewall**: OVH Security Groups — allow SSH TCP/22 + Mosh UDP/60000-61000; RC uses outbound HTTPS/WSS (no inbound ports needed)
 - **Ephemeral instances** — no persistent attack surface
 - **Private key stays on phone** — never transmitted to cloud
 

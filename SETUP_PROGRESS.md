@@ -41,9 +41,11 @@ ForbiddenException: 403, rule:create_security_group is disallowed by policy
    ```
 6. Retry:
    ```bash
-   openstack security group create mobile-claude-sg --description "SSH only"
+   openstack security group create mobile-claude-sg --description "SSH + Mosh"
    openstack security group rule create mobile-claude-sg \
      --protocol tcp --dst-port 22 --remote-ip 0.0.0.0/0
+   openstack security group rule create mobile-claude-sg \
+     --protocol udp --dst-port 60000:61000 --remote-ip 0.0.0.0/0
    ```
 
 **Alternative (skip role fix):** Use the existing `default` security group:
@@ -51,6 +53,8 @@ ForbiddenException: 403, rule:create_security_group is disallowed by policy
 openstack security group list
 openstack security group rule create default \
   --protocol tcp --dst-port 22 --remote-ip 0.0.0.0/0
+openstack security group rule create default \
+  --protocol udp --dst-port 60000:61000 --remote-ip 0.0.0.0/0
 # Then use --security-group default when launching the server
 ```
 

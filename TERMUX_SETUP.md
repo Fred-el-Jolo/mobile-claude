@@ -13,6 +13,34 @@ pkg update && pkg install python openssh mosh
 pip install python-openstackclient
 ```
 
+### Troubleshooting: python-openstackclient on Termux
+
+`pip install python-openstackclient` may fail building `psutil` from source (a dependency). Fix:
+
+**1. Install Rust** (required for some cryptography deps):
+```bash
+pkg install rust
+```
+
+**2. Set the Android API level** (required for native builds):
+```bash
+export ANDROID_API_LEVEL=36
+```
+
+**3. Build psutil with the Android patch** — psutil doesn't support Android out of the box. Apply the patch circulating online before building:
+```bash
+pip install --no-binary psutil psutil
+```
+If that still fails, download the psutil source, apply the Android patch (search "psutil android termux patch"), then install locally:
+```bash
+pip install ./psutil-patched/
+```
+
+Then retry:
+```bash
+pip install python-openstackclient
+```
+
 ---
 
 ## Copy files to Termux
