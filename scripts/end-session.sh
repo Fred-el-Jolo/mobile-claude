@@ -43,12 +43,17 @@ if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$OVH_SSH_USER@$IP" true 
     aws s3 sync ~/ s3://${OVH_STATE_BUCKET}/dotfiles/ \
       --exclude '*' \
       --include '.gitconfig' \
-      --include '.claude/*' \
       --include '.bashrc' \
       --include '.zshrc' \
       --include '.ssh/config' \
       --include '.ssh/known_hosts' \
       --include '.ssh/authorized_keys' \
+      --include '.claude/settings.json' \
+      --include '.claude/CLAUDE.md' \
+      --include '.claude/.credentials.json' \
+      --include '.claude/skills/*' \
+      --include '.claude/plugins/*' \
+      --include '.claude/projects/*' \
       --quiet
     aws s3 sync ~/env/ s3://${OVH_STATE_BUCKET}/env/ \
       --quiet

@@ -41,6 +41,10 @@ echo "startup: syncing dotfiles from S3..."
 sudo -H -u ubuntu aws s3 sync "s3://${OVH_STATE_BUCKET}/dotfiles/" /home/ubuntu/ \
   --exact-timestamps \
   --exclude ".ssh/id_*" \
+  --exclude ".claude/cache/*" \
+  --exclude ".claude/backups/*" \
+  --exclude ".claude/history.jsonl" \
+  --exclude ".claude/mcp-needs-auth-cache.json" \
   || echo "startup: dotfiles sync failed or bucket empty — continuing"
 
 echo "startup: syncing env from S3..."

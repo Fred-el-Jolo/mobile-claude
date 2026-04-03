@@ -45,12 +45,17 @@ push_dotfiles() {
   aws s3 sync ~/ "${S3_BASE}/dotfiles/" $EP \
     --exclude "*" \
     --include ".gitconfig" \
-    --include ".claude/*" \
     --include ".bashrc" \
     --include ".zshrc" \
     --include ".ssh/config" \
     --include ".ssh/known_hosts" \
     --include ".ssh/authorized_keys" \
+    --include ".claude/settings.json" \
+    --include ".claude/CLAUDE.md" \
+    --include ".claude/.credentials.json" \
+    --include ".claude/skills/*" \
+    --include ".claude/plugins/*" \
+    --include ".claude/projects/*" \
     --delete
   echo "  dotfiles pushed."
 }
@@ -59,6 +64,10 @@ pull_dotfiles() {
   echo "Pulling dotfiles ← S3..."
   aws s3 sync "${S3_BASE}/dotfiles/" ~/ $EP \
     --exclude ".ssh/id_*" \
+    --exclude ".claude/cache/*" \
+    --exclude ".claude/backups/*" \
+    --exclude ".claude/history.jsonl" \
+    --exclude ".claude/mcp-needs-auth-cache.json" \
     --exact-timestamps
   echo "  dotfiles pulled."
 }
