@@ -6,11 +6,6 @@
 # Update packages
 apt-get update -q && apt-get upgrade -y -q && apt-get autoremove -y -q
 
-# Install AWS CLI for OVH Object Storage sync
-#if ! command -v aws &>/dev/null; then
-#  apt-get install -y -q awscli
-#fi
-
 # S3 credentials (injected by start-session.sh — never edit real values here)
 OVH_S3_ACCESS_KEY="__OVH_S3_ACCESS_KEY__"
 OVH_S3_SECRET_KEY="__OVH_S3_SECRET_KEY__"
@@ -24,7 +19,8 @@ if [[ "$OVH_S3_ACCESS_KEY" == "__OVH_S3_ACCESS_KEY__" ]]; then
 fi
 
 # Write AWS credentials for ubuntu user
-sudo -u ubuntu mkdir -p /home/ubuntu/.aws
+# -H flag ensures HOME is set to /home/ubuntu so aws finds the credentials file
+mkdir -p /home/ubuntu/.aws
 cat > /home/ubuntu/.aws/credentials <<EOF
 [default]
 aws_access_key_id = ${OVH_S3_ACCESS_KEY}
@@ -33,25 +29,22 @@ EOF
 cat > /home/ubuntu/.aws/config <<EOF
 [default]
 region = gra
-output = json
-endpoint_url = $OVH_S3_ENDPOINT
+endpoint_url = ${OVH_S3_ENDPOINT}
 EOF
-chown ubuntu:ubuntu /home/ubuntu/.aws/credentials /home/ubuntu/.aws/config
+chown -R ubuntu:ubuntu /home/ubuntu/.aws
 chmod 600 /home/ubuntu/.aws/credentials
 
 # Sync state from OVH Object Storage (graceful — don't fail if bucket is empty or first session)
 echo "startup: syncing dotfiles from S3..."
-sudo -u ubuntu aws s3 sync "s3://${OVH_STATE_BUCKET}/dotfiles/" /home/ubuntu/ \
-#  --endpoint-url "${OVH_S3_ENDPOINT}" \
+sudo -H -u ubuntu aws s3 sync "s3://${OVH_STATE_BUCKET}/dotfiles/" /home/ubuntu/ \
   --exact-timestamps \
-#  --exclude ".ssh/id_*" \
-  2>/dev/null || echo "startup: dotfiles sync failed or bucket empty — continuing"
+  --exclude ".ssh/id_*" \
+  || echo "startup: dotfiles sync failed or bucket empty — continuing"
 
 echo "startup: syncing env from S3..."
-sudo -u ubuntu mkdir -p /home/ubuntu/env
-sudo -u ubuntu aws s3 sync "s3://${OVH_STATE_BUCKET}/env/" /home/ubuntu/env/ \
-#  --endpoint-url "${OVH_S3_ENDPOINT}" \
+sudo -H -u ubuntu mkdir -p /home/ubuntu/env
+sudo -H -u ubuntu aws s3 sync "s3://${OVH_STATE_BUCKET}/env/" /home/ubuntu/env/ \
   --exact-timestamps \
-  2>/dev/null || echo "startup: env sync failed or bucket empty — continuing"
+  || echo "startup: env sync failed or bucket empty — continuing"
 
 echo "startup: state sync complete."
