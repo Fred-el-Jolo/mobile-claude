@@ -3,6 +3,8 @@
 # Keeps the instance up-to-date regardless of snapshot age.
 # S3 credentials are injected by start-session.sh at launch time (placeholders below).
 
+set -x  # trace every command to cloud-init-output.log
+
 # Update packages
 apt-get update -q && apt-get upgrade -y -q && apt-get autoremove -y -q
 
@@ -12,8 +14,8 @@ OVH_S3_SECRET_KEY="__OVH_S3_SECRET_KEY__"
 OVH_STATE_BUCKET="__OVH_STATE_BUCKET__"
 OVH_S3_ENDPOINT="__OVH_S3_ENDPOINT__"
 
-# Skip sync if credentials were not injected
-if [[ "$OVH_S3_ACCESS_KEY" == "__OVH_S3_ACCESS_KEY__" ]]; then
+# Skip sync if credentials were not injected (guard uses prefix pattern, not the placeholder itself)
+if [[ "$OVH_S3_ACCESS_KEY" == __* ]]; then
   echo "startup: S3 credentials not injected — skipping state sync"
   exit 0
 fi
