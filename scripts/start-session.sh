@@ -33,7 +33,7 @@ echo "Starting session: $INSTANCE_NAME (mode: $MODE)"
 echo ""
 
 # Generate startup script with S3 credentials injected
-STARTUP_TMP=$(mktemp /tmp/startup-XXXXXX.sh)
+STARTUP_TMP=$(mktemp "${TMPDIR:-/tmp}/startup-XXXXXX.sh")
 sed \
   -e "s|__OVH_S3_ACCESS_KEY__|${OVH_S3_ACCESS_KEY}|g" \
   -e "s|__OVH_S3_SECRET_KEY__|${OVH_S3_SECRET_KEY}|g" \
