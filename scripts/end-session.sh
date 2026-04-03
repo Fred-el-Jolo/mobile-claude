@@ -36,14 +36,24 @@ fi
 echo "Ending session: $INSTANCE_ID ($IP)"
 echo ""
 
-# Sync state from instance to Object Storage (skip if bucket not configured)
+# Sync state from instance to Object Storage
 if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$OVH_SSH_USER@$IP" true 2>/dev/null; then
   echo "Syncing state to Object Storage..."
-  # TODO: uncomment once OVH Object Storage bucket is created
-  # ssh -o StrictHostKeyChecking=no "$OVH_SSH_USER@$IP" \
-  #   "aws s3 sync ~/.claude/ s3://$OVH_STATE_BUCKET/dotfiles/.claude/ --endpoint-url $OVH_S3_ENDPOINT --quiet && \
-  #    aws s3 cp ~/.gitconfig s3://$OVH_STATE_BUCKET/dotfiles/.gitconfig --endpoint-url $OVH_S3_ENDPOINT 2>/dev/null || true"
-  echo "  (Object Storage sync not yet configured — skipping)"
+  ssh -o StrictHostKeyChecking=no "$OVH_SSH_USER@$IP" "
+    aws s3 sync ~/ s3://${OVH_STATE_BUCKET}/dotfiles/ \
+      --exclude '*' \
+      --include '.gitconfig' \
+      --include '.claude/*' \
+      --include '.bashrc' \
+      --include '.zshrc' \
+      --include '.ssh/config' \
+      --include '.ssh/known_hosts' \
+      --include '.ssh/authorized_keys' \
+      --quiet
+    aws s3 sync ~/env/ s3://${OVH_STATE_BUCKET}/env/ \
+      --quiet
+  " || echo "  WARNING: State sync failed — instance will still be deleted"
+  echo "  State synced."
 else
   echo "  Instance unreachable — skipping state sync"
 fi

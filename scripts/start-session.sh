@@ -32,6 +32,15 @@ INSTANCE_NAME="mobile-claude-$(date +%s)"
 echo "Starting session: $INSTANCE_NAME (mode: $MODE)"
 echo ""
 
+# Generate startup script with S3 credentials injected
+STARTUP_TMP=$(mktemp /tmp/startup-XXXXXX.sh)
+sed \
+  -e "s|__OVH_S3_ACCESS_KEY__|${OVH_S3_ACCESS_KEY}|g" \
+  -e "s|__OVH_S3_SECRET_KEY__|${OVH_S3_SECRET_KEY}|g" \
+  -e "s|__OVH_STATE_BUCKET__|${OVH_STATE_BUCKET}|g" \
+  -e "s|__OVH_S3_ENDPOINT__|${OVH_S3_ENDPOINT}|g" \
+  "$SCRIPT_DIR/startup.sh" > "$STARTUP_TMP"
+
 # Create instance from snapshot
 echo "Creating instance from snapshot..."
 INSTANCE_ID=$(openstack server create \
@@ -40,10 +49,13 @@ INSTANCE_ID=$(openstack server create \
   --key-name "$OVH_SSH_KEY_NAME" \
   --security-group "$OVH_SECURITY_GROUP" \
   --network "$OVH_NETWORK_ID" \
-  --user-data "$SCRIPT_DIR/startup.sh" \
+  --user-data "$STARTUP_TMP" \
   --wait \
   -f value -c id \
   "$INSTANCE_NAME")
+
+# Clean up credential-bearing temp script
+rm -f "$STARTUP_TMP"
 
 echo "Instance created: $INSTANCE_ID"
 
