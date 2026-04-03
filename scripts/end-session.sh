@@ -51,7 +51,12 @@ if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$OVH_SSH_USER@$IP" true 
       --include '.claude/settings.json' \
       --include '.claude/CLAUDE.md' \
       --include '.claude/.credentials.json' \
+      --include '.claude/rules/*' \
       --include '.claude/skills/*' \
+      --include '.claude/commands/*' \
+      --include '.claude/output-styles/*' \
+      --include '.claude/agents/*' \
+      --include '.claude/agent-memory/*' \
       --include '.claude/plugins/*' \
       --include '.claude/projects/*' \
       --quiet

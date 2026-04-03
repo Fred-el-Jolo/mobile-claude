@@ -53,7 +53,12 @@ push_dotfiles() {
     --include ".claude/settings.json" \
     --include ".claude/CLAUDE.md" \
     --include ".claude/.credentials.json" \
+    --include ".claude/rules/*" \
     --include ".claude/skills/*" \
+    --include ".claude/commands/*" \
+    --include ".claude/output-styles/*" \
+    --include ".claude/agents/*" \
+    --include ".claude/agent-memory/*" \
     --include ".claude/plugins/*" \
     --include ".claude/projects/*" \
     --delete
