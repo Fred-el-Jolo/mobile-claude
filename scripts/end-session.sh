@@ -59,6 +59,7 @@ if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$OVH_SSH_USER@$IP" true 
       --include '.claude/agent-memory/*' \
       --include '.claude/plugins/*' \
       --include '.claude/projects/*' \
+      --include '.config/gh/*' \
       --quiet
     aws s3 sync ~/env/ s3://${OVH_STATE_BUCKET}/env/ \
       --quiet
