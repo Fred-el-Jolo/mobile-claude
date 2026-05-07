@@ -312,6 +312,73 @@ Compare: GitHub Codespaces for same usage ≈ $7–15/month.
 
 ---
 
+## Notification System
+
+Push notifications to phone/device when Claude finishes a turn or needs attention on the remote instance.
+
+### Architecture
+
+```
+[OVH d2-2 instance]
+   | Claude Code hooks (Stop / Notification)
+   | curl POST → Tailscale network
+   ↓
+[Home RPi — ntfy server :8080]
+   | Tailscale network
+   ↓
+[Phone — ntfy app, subscribed to topic]
+```
+
+No public ports. Everything travels over Tailscale. The RPi ntfy server is reachable from the cloud instance via MagicDNS hostname.
+
+### ntfy on RPi
+
+```bash
+docker run -d --name ntfy \
+  -p 8080:80 \
+  -v /var/lib/ntfy:/var/lib/ntfy \
+  --restart unless-stopped \
+  binwiederhier/ntfy serve
+```
+
+Subscribe on phone: install the **ntfy app** → add server `http://<rpi-tailscale-ip>:8080` → subscribe to topic `claude` (or whatever `NTFY_TOPIC` is set to).
+
+### Tailscale on the Cloud Instance
+
+The RPi is already on the tailnet. On each new instance, Tailscale auto-joins using a **reusable ephemeral pre-auth key** — no interactive auth needed.
+
+Generate the key once at **tailscale.com/admin/settings/keys**:
+- ✅ Reusable (same key on every recreated instance)
+- ✅ Ephemeral (instance auto-removed from tailnet when deleted — keeps the tailnet clean)
+
+Add to `cloud-init` or `setup-instance.sh`:
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --authkey=tskey-auth-XXXXXXXX --hostname=ovh-claude
+```
+
+### Claude Code Hooks (`.claude/settings.json`)
+
+Pre-configured in this repo at `.claude/settings.json`. Two hooks:
+
+| Hook | Fires when | ntfy priority |
+|------|-----------|--------------|
+| `Stop` | Claude finishes a turn, waiting for input | default (✅) |
+| `Notification` | Claude explicitly needs attention | high (🔔) |
+
+Both hooks use `--connect-timeout 3 --max-time 5` so an unreachable ntfy server never blocks Claude's response loop.
+
+### Environment Variables (set on instance)
+
+```bash
+export NTFY_SERVER=http://raspberrypi:8080   # RPi MagicDNS name or Tailscale IP
+export NTFY_TOPIC=claude                      # ntfy topic to publish to (default: claude)
+```
+
+Add to `.bashrc` or the cloud-init bootstrap so they're set on every session start.
+
+---
+
 ## Security Model
 
 - **SSH key auth only** — no password auth on instances
@@ -326,7 +393,9 @@ Compare: GitHub Codespaces for same usage ≈ $7–15/month.
 
 ```
 ~/dev/mobile-claude/
-├── ARCHITECTURE.md          ← This file
+├── ARCHITECTURE.md          ← This file (architecture)
+├── .claude/
+│   └── settings.json        ← Claude Code hooks (Stop + Notification → ntfy)
 ├── scripts/
 │   ├── start-session.sh     ← Create instance + connect
 │   ├── end-session.sh       ← Sync state + destroy instance
