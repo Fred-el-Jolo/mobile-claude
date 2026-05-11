@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# laptop-sync.sh — sync laptop dotfiles/env/projects with OVH Object Storage
+# laptop-sync.sh — sync laptop dotfiles/env/Projects with OVH Object Storage
 # Runs from the laptop (NOT on the OVH instance).
 #
 # Usage:
@@ -60,7 +60,7 @@ push_dotfiles() {
     --include ".claude/agents/*" \
     --include ".claude/agent-memory/*" \
     --include ".claude/plugins/*" \
-    --include ".claude/projects/*" \
+    --include ".claude/Projects/*" \
     --delete
   echo "  dotfiles pushed."
 }
@@ -96,18 +96,47 @@ pull_env() {
 
 push_projects() {
   echo "Pushing projects → S3..."
-  if [[ -d ~/projects ]]; then
-    aws s3 sync ~/projects/ "${S3_BASE}/projects/" $EP --delete
-    echo "  projects pushed."
-  else
-    echo "  ~/projects/ not found — skipping"
+  if [[ ! -d ~/Projects ]]; then
+    echo "  ~/Projects/ not found — skipping"
+    return
   fi
+  for proj in ~/Projects/*/; do
+    [[ -d "$proj/.git" ]] || continue
+    remote=$(git -C "$proj" config --get remote.origin.url 2>/dev/null || echo "")
+    branch=$(git -C "$proj" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    lastCommit=$(git -C "$proj" rev-parse HEAD 2>/dev/null || echo "")
+    printf '{"remote":"%s","branch":"%s","lastCommit":"%s"}\n' "$remote" "$branch" "$lastCommit" > "$proj/.git-meta.json"
+  done
+  aws s3 sync ~/Projects/ "${S3_BASE}/Projects/" $EP --delete \
+    --exclude "*/node_modules/*" --exclude "*/.venv/*" --exclude "*/venv/*" \
+    --exclude "*/vendor/*" --exclude "*/target/*" --exclude "*/dist/*" \
+    --exclude "*/build/*" --exclude "*/.next/*" --exclude "*/__pycache__/*" \
+    --exclude "*/.git/*" --exclude "*.log" --exclude "*.tmp" \
+    --exclude "*.pyc" --exclude "*.class"
+  echo "  projects pushed."
 }
 
 pull_projects() {
   echo "Pulling projects ← S3..."
-  mkdir -p ~/projects
-  aws s3 sync "${S3_BASE}/projects/" ~/projects/ $EP --exact-timestamps
+  mkdir -p ~/Projects
+  aws s3 sync "${S3_BASE}/Projects/" ~/Projects/ $EP --exact-timestamps \
+    --exclude "*/node_modules/*" --exclude "*/.venv/*" --exclude "*/venv/*" \
+    --exclude "*/vendor/*" --exclude "*/target/*" --exclude "*/dist/*" \
+    --exclude "*/build/*" --exclude "*/.next/*" --exclude "*/__pycache__/*" \
+    --exclude "*/.git/*" --exclude "*.log" --exclude "*.tmp" \
+    --exclude "*.pyc" --exclude "*.class"
+  for meta in ~/Projects/*/.git-meta.json; do
+    [[ -f "$meta" ]] || continue
+    proj=$(dirname "$meta")
+    [[ -d "$proj/.git" ]] && continue
+    remote=$(python3 -c "import json; d=json.load(open('$meta')); print(d['remote'])" 2>/dev/null || true)
+    branch=$(python3 -c "import json; d=json.load(open('$meta')); print(d['branch'])" 2>/dev/null || true)
+    [[ -z "$remote" ]] && continue
+    git -C "$proj" init -q
+    git -C "$proj" remote add origin "$remote"
+    [[ -n "$branch" ]] && git -C "$proj" checkout -q -b "$branch" 2>/dev/null || true
+    echo "  Re-initialized git in $(basename "$proj")"
+  done
   echo "  projects pulled."
 }
 

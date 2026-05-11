@@ -65,6 +65,26 @@ if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$OVH_SSH_USER@$IP" true 
       --quiet
   " || echo "  WARNING: State sync failed — instance will still be deleted"
   echo "  State synced."
+  echo "  Syncing projects → S3..."
+  ssh -o StrictHostKeyChecking=no "$OVH_SSH_USER@$IP" bash -s -- "$OVH_STATE_BUCKET" << 'ENDSYNC'
+STATE_BUCKET="$1"
+if [[ -d ~/Projects ]]; then
+  for proj in ~/Projects/*/; do
+    [[ -d "$proj/.git" ]] || continue
+    remote=$(git -C "$proj" config --get remote.origin.url 2>/dev/null || echo "")
+    branch=$(git -C "$proj" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    lastCommit=$(git -C "$proj" rev-parse HEAD 2>/dev/null || echo "")
+    printf '{"remote":"%s","branch":"%s","lastCommit":"%s"}\n' "$remote" "$branch" "$lastCommit" > "$proj/.git-meta.json"
+  done
+  aws s3 sync ~/Projects/ "s3://${STATE_BUCKET}/Projects/" --delete --quiet \
+    --exclude "*/node_modules/*" --exclude "*/.venv/*" --exclude "*/venv/*" \
+    --exclude "*/vendor/*" --exclude "*/target/*" --exclude "*/dist/*" \
+    --exclude "*/build/*" --exclude "*/.next/*" --exclude "*/__pycache__/*" \
+    --exclude "*/.git/*" --exclude "*.log" --exclude "*.tmp" \
+    --exclude "*.pyc" --exclude "*.class"
+fi
+ENDSYNC
+  echo "  Projects synced."
 else
   echo "  Instance unreachable — skipping state sync"
 fi

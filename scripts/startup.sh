@@ -53,4 +53,27 @@ sudo -H -u ubuntu aws s3 sync "s3://${OVH_STATE_BUCKET}/env/" /home/ubuntu/env/ 
   --exact-timestamps \
   || echo "startup: env sync failed or bucket empty — continuing"
 
+echo "startup: syncing projects from S3..."
+sudo -H -u ubuntu mkdir -p /home/ubuntu/Projects
+sudo -H -u ubuntu aws s3 sync "s3://${OVH_STATE_BUCKET}/Projects/" /home/ubuntu/Projects/ --exact-timestamps \
+  --exclude "*/node_modules/*" --exclude "*/.venv/*" --exclude "*/venv/*" \
+  --exclude "*/vendor/*" --exclude "*/target/*" --exclude "*/dist/*" \
+  --exclude "*/build/*" --exclude "*/.next/*" --exclude "*/__pycache__/*" \
+  --exclude "*/.git/*" --exclude "*.log" --exclude "*.tmp" \
+  --exclude "*.pyc" --exclude "*.class" \
+  || echo "startup: projects sync failed or bucket empty — continuing"
+
+for meta in /home/ubuntu/Projects/*/.git-meta.json; do
+  [ -f "$meta" ] || continue
+  proj=$(dirname "$meta")
+  [ -d "$proj/.git" ] && continue
+  remote=$(python3 -c "import json; d=json.load(open('$meta')); print(d['remote'])" 2>/dev/null || true)
+  branch=$(python3 -c "import json; d=json.load(open('$meta')); print(d['branch'])" 2>/dev/null || true)
+  [ -z "$remote" ] && continue
+  echo "startup: re-initializing git in $(basename "$proj")"
+  sudo -H -u ubuntu git -C "$proj" init -q
+  sudo -H -u ubuntu git -C "$proj" remote add origin "$remote"
+  [ -n "$branch" ] && sudo -H -u ubuntu git -C "$proj" checkout -q -b "$branch" 2>/dev/null || true
+done
+
 echo "startup: state sync complete."
