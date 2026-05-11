@@ -8,11 +8,12 @@ set -x  # trace every command to cloud-init-output.log
 # Update packages
 apt-get update -q && apt-get upgrade -y -q && apt-get autoremove -y -q
 
-# S3 credentials (injected by start-session.sh — never edit real values here)
+# Credentials (injected by start-session.sh — never edit real values here)
 OVH_S3_ACCESS_KEY="__OVH_S3_ACCESS_KEY__"
 OVH_S3_SECRET_KEY="__OVH_S3_SECRET_KEY__"
 OVH_STATE_BUCKET="__OVH_STATE_BUCKET__"
 OVH_S3_ENDPOINT="__OVH_S3_ENDPOINT__"
+TS_AUTHKEY="__TS_AUTHKEY__"
 
 # Skip sync if credentials were not injected (guard uses prefix pattern, not the placeholder itself)
 if [[ "$OVH_S3_ACCESS_KEY" == __* ]]; then
@@ -73,7 +74,23 @@ for meta in /home/ubuntu/Projects/*/.git-meta.json; do
   echo "startup: re-initializing git in $(basename "$proj")"
   sudo -H -u ubuntu git -C "$proj" init -q
   sudo -H -u ubuntu git -C "$proj" remote add origin "$remote"
-  [ -n "$branch" ] && sudo -H -u ubuntu git -C "$proj" checkout -q -b "$branch" 2>/dev/null || true
+  if sudo -H -u ubuntu git -C "$proj" fetch --quiet origin 2>/dev/null; then
+    [ -n "$branch" ] && sudo -H -u ubuntu git -C "$proj" update-ref "refs/heads/$branch" "refs/remotes/origin/$branch" 2>/dev/null || true
+  else
+    [ -n "$branch" ] && sudo -H -u ubuntu git -C "$proj" checkout -q -b "$branch" 2>/dev/null || true
+  fi
 done
 
 echo "startup: state sync complete."
+
+# Join Tailscale (enables ntfy notifications via private network)
+if [[ "$TS_AUTHKEY" != __* ]]; then
+  echo "startup: joining Tailscale..."
+  if ! command -v tailscale &>/dev/null; then
+    curl -fsSL https://tailscale.com/install.sh | sh
+  fi
+  tailscale up --authkey="$TS_AUTHKEY" --hostname=ovh-claude
+  echo "startup: Tailscale connected."
+else
+  echo "startup: TS_AUTHKEY not injected — skipping Tailscale"
+fi

@@ -39,6 +39,7 @@ sed \
   -e "s|__OVH_S3_SECRET_KEY__|${OVH_S3_SECRET_KEY}|g" \
   -e "s|__OVH_STATE_BUCKET__|${OVH_STATE_BUCKET}|g" \
   -e "s|__OVH_S3_ENDPOINT__|${OVH_S3_ENDPOINT}|g" \
+  -e "s|__TS_AUTHKEY__|${TS_AUTHKEY}|g" \
   "$SCRIPT_DIR/startup.sh" > "$STARTUP_TMP"
 
 # Create instance from snapshot
