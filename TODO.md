@@ -11,14 +11,19 @@ Data to protect is small: `~/.pi/agent/auth.json`, repos, dotfiles — a few GB,
 
 **Recommendation:** skip the NAS. Backblaze B2/rsync.net + `restic` is the right <100€ spend — actually under 5€/year at this data volume — and it's the only option here that also survives something happening to the house, not just the SD card.
 
-## Unattended security upgrades
+## Unattended security upgrades — ✅ DONE
 
-```bash
-sudo apt install unattended-upgrades
-sudo dpkg-reconfigure -plow unattended-upgrades   # select "Yes"
+`unattended-upgrades` installed; `/etc/apt/apt.conf.d/20auto-upgrades` has `Update-Package-Lists` and `Unattended-Upgrade` both at `"1"`; `apt-daily*.timer` active. Verified with `sudo unattended-upgrades --dry-run --debug`.
+
+**Gotcha — the shipped origins-pattern is incomplete.** This box is **Debian Trixie (13) with a Raspberry Pi Foundation overlay**, not "Raspberry Pi OS Bullseye+" as the old text above assumed. The default `/etc/apt/apt.conf.d/50unattended-upgrades` only matches `origin=Debian`, so kernel/firmware updates from the Raspberry Pi Foundation repo (`archive.raspberrypi.com`) were being silently skipped ("Marking not allowed"). Fixed by adding one line to the `Origins-Pattern` block:
+
+```
+"origin=Raspberry Pi Foundation,label=Raspberry Pi Foundation";
 ```
 
-Raspberry Pi OS (Bullseye+) already ships correct origins in `/etc/apt/apt.conf.d/50unattended-upgrades` — just confirm the file isn't empty after.
+Match on **origin/label, not `${distro_codename}`** — the RPi repo advertises archive `stable` while distro codename is `trixie`, so a codename match wouldn't fire. The Tailscale repo (`pkgs.tailscale.com`) is intentionally left excluded — don't auto-update the only remote-access path.
+
+Backup of the pre-edit config: `/etc/apt/apt.conf.d/50unattended-upgrades.bak.20260810-195928`.
 
 ## USB SSD boot (Pi 4B)
 
@@ -28,29 +33,23 @@ Raspberry Pi OS (Bullseye+) already ships correct origins in `/etc/apt/apt.conf.
 
 ## `tailscale up --ssh` — ✅ DONE
 
-- On the Pi: add `--ssh` to the existing invocation — `sudo tailscale up --hostname=rpi-agent --ssh`.
-- From any device on your tailnet: `tailscale ssh jolo@rpi-agent` — authenticates via Tailscale identity, no key exchange needed.
+- On the Pi: `--ssh` is enabled on the tailscale node. (`rpi` below is a generic placeholder for the node's MagicDNS hostname — CLAUDE.md uses `rpi-agent`; treat both as placeholders, substitute the real hostname when you actually run the command.)
+- From any device on your tailnet: `tailscale ssh jolo@rpi` — authenticates via Tailscale identity, no key exchange needed.
 - Independent of moshi-hook: moshi-hook is the app-level bridge into the tmux session; `tailscale ssh` only replaces the key-based auth on the "mosh/ssh fallback" path. Keep the `ed25519` key regardless — `mosh` bootstraps over classic SSH and doesn't go through Tailscale's SSH layer.
 
-## Temp / throttle alerting
+## Temp / throttle alerting — ✅ DONE
 
-No `ntfy` on the Pi at all anymore — route through the same moshi-hook webhook that already delivers agent notifications, via a plain system-level cron script (decoupled from Claude Code, just a curl call):
+Implemented as `~/bin/check-throttle.sh`, run every 15 min via the **user crontab** (`*/15 * * * * /home/jolo/bin/check-throttle.sh`). Decoupled from the agent — pure cron, no `curl`.
 
-```bash
-# ~/.config/moshi-hook/token.env — chmod 600, NOT committed to this repo
-export MOSHI_TOKEN="your-api-token"
-```
+**Notification channel (corrected — the original webhook design above was wrong):** there is no public "moshi webhook". The real local notify primitive is piping a JSON hook payload to `moshi-hook pi-hook` — the exact same path the pi agent extension (`~/.pi/agent/extensions/moshi-hooks.ts`) uses. The running moshi-hook daemon holds the `host-secret` (in `~/.local/state/moshi/secrets.json`) and POSTs to `https://api.getmoshi.app/api/v1/hosts/<host-id>/events`. So **the script needs no secrets**; the stray `~/.config/moshi-hook/token.env` (a leftover one-time pairing token, superseded by `secrets.json`) has been removed. (`moshi-hook pi-hook` is the reusable recipe for *any* local script that wants to push a phone notification.)
 
-```bash
-# /home/jolo/bin/check-throttle.sh, run every 15 min via cron
-source ~/.config/moshi-hook/token.env
-T=$(vcgencmd get_throttled)
-[ "$T" != "throttled=0x0" ] && curl -s -X POST https://api.getmoshi.app/api/webhook \
-  -H "Content-Type: application/json" \
-  -d "{\"token\":\"$MOSHI_TOKEN\",\"title\":\"Pi throttled\",\"message\":\"$T\"}"
-```
+**What it does:**
+- Decodes `vcgencmd get_throttled` into named flags (under-voltage / arm-capped / throttled / soft-temp-limit — both "now" and "occurred since boot") and includes `measure_temp` + hostname in the message.
+- On a non-zero bitmask → `⚠️ Pi throttled`; on return to `0x0` → `✅ Pi throttle cleared`.
+- Spam-safe via `~/.local/state/check-throttle/state`: suppresses repeats within 6 h for an unchanged condition, re-alerts when the bitmask changes. Logs every run to `~/.local/state/check-throttle/check-throttle.log`.
+- `check-throttle.sh --test` forces a notification to verify wiring.
 
-Catches thermal/undervoltage throttling. It won't catch a fully hung/crashed Pi though — if that ever matters, a free Healthchecks.io "dead man's switch" (Pi pings it every N minutes, missed pings trigger the alert) is the standard lightweight add-on; it can also target the same moshi webhook as its integration if you don't want a second notification channel.
+Still **does not** catch a fully hung/crashed Pi — for that, a free Healthchecks.io "dead man's switch" (Pi pings it every N minutes; missed pings alert) is the standard lightweight add-on, and it can target the same `moshi-hook pi-hook` channel.
 
 ---
 
