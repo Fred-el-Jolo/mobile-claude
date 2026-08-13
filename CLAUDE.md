@@ -254,6 +254,21 @@ Nothing to tear down at the end of a session — the Pi just keeps running.
 
 ---
 
+## Monitoring & Alerts
+
+Two cron-driven shell scripts push **state-change alerts** to the Moshi mobile app through the same channel: each builds an `AgentEnd`-style JSON payload and pipes it to **`moshi-hook pi-hook`**. The running `moshi-hook` daemon (a `systemd --user` service) holds the host secret and talks to the Moshi API, so **neither script contains any credentials**. Both run from `jolo`'s crontab every 15 min, log to `~/.local/state/<name>/`, keep a small state file so they notify only on a *change* (re-asserting once every 6 h if a condition persists), and take a `--test` flag to force one notification.
+
+| Script | Watches | Alerts on |
+|---|---|---|
+| `~/bin/check-throttle.sh` | Pi power/thermal — `vcgencmd get_throttled` | under-voltage, ARM frequency cap, throttling, soft temperature limit — onset **and** clear |
+| `~/bin/check-ssd.sh` | USB SSD SMART — `smartctl -d sat /dev/sda` | drive gone / SMART unreadable, health ≠ PASSED, reallocated / uncorrectable / pending / SATA-CRC counts > 0, `SSD_Life_Left` < 20%, temperature > 70 °C |
+
+**Verify wiring:** `~/bin/check-throttle.sh --test` and `~/bin/check-ssd.sh --test` each fire one forced push.
+
+**Why the SSD check needs sudo:** SAT passthrough on `/dev/sda` requires root, but the cron runs as `jolo` (so `moshi-hook pi-hook` can reach the user daemon). The script calls a **read-only root wrapper** `/usr/local/bin/ssd-smart` (just `smartctl -H -A -d sat`), allowed passwordless via `/etc/sudoers.d/ssd-smart` (`jolo ALL=(root) NOPASSWD: /usr/local/bin/ssd-smart`) — scoped so `jolo` can **only** run that read-only dump, never arbitrary `smartctl`. Thresholds are env-overridable: `LIFE_LEFT_WARN` (default 20), `TEMP_WARN` (default 70).
+
+---
+
 ## Security Model
 
 - **No open ports** — everything rides the Tailscale tunnel; the Pi is not reachable from the public internet.
@@ -261,6 +276,7 @@ Nothing to tear down at the end of a session — the Pi just keeps running.
 - **moshi-hook pairing token** — treat it like a credential. The token used during initial setup was pasted in plaintext into a shell session that got logged; **rotate it** if that history is retained anywhere outside this machine.
 - **`loginctl enable-linger`** keeps the bridge running without a logged-in session — verify this is scoped to the single `jolo` user, not broadened further.
 - **The SD card is a standby boot device, not spare storage** — `BOOT_ORDER=0xf14` boots it automatically if the SSD fails, so don't remove or repartition it assuming it's unused. See *Storage & Boot*.
+- **Health-monitoring sudo is tightly scoped** — `jolo` has passwordless sudo for *only* `/usr/local/bin/ssd-smart` (a read-only `smartctl -H -A -d sat` wrapper), so `check-ssd.sh` can read SSD SMART from the cron context without broader root. See *Monitoring & Alerts*.
 
 ---
 
