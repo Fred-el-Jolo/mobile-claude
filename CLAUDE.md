@@ -7,6 +7,10 @@
 > **moshi-hook** (getmoshi.app) and **pi** (pi.dev) — are described here by what the commands do
 > (pairing, systemd service, auth config), not from vendor docs. Correct me if a role below is wrong.
 
+> 💾 **Storage migrated off the SD card (2026-08).** Root + `/boot/firmware` now live on an
+> external **USB SSD** (`/dev/sda`, Kingston A400 480 GB); the SD card stays in the slot as a
+> **boot fallback**. `BOOT_ORDER=0xf14` boots the SSD first, then the SD. See *Storage & Boot* below.
+
 ---
 
 ## Problem Decomposition
@@ -15,7 +19,7 @@
 |---|---|---|
 | **Compute** | Where does the agent run? | A Raspberry Pi at home — always on, no cold start |
 | **Connectivity** | How does mobile reach it? | Tailscale (private mesh network) + `moshi-hook` remote-control bridge |
-| **State** | What persists between sessions? | Everything, on the Pi's own disk — nothing ephemeral, nothing to sync |
+| **State** | What persists between sessions? | Everything, on the Pi's **external USB SSD** (root + boot) — nothing ephemeral, nothing to sync. The SD card is a boot fallback, not the primary store |
 | **Lifecycle** | How do sessions start/stop? | Nothing to start/stop — the agent bridge runs as a `systemd --user` service with lingering enabled, boots with the Pi |
 
 The old OVH doc solved a problem this setup doesn't have: paying per-minute for compute and syncing state in and out of an ephemeral box. A Pi sitting at home removes that whole layer — the only real work is **getting to it securely from a phone**, which is what Tailscale + moshi-hook do.
@@ -39,6 +43,10 @@ The old OVH doc solved a problem this setup doesn't have: paying per-minute for 
                                   tmux session (persistent, survives disconnects)
                                        |
                                   `pi` agent CLI  (~/.pi/agent/auth.json)
+                                       |
+                                  external USB SSD  (/dev/sda)   ←  root + /boot/firmware live here  [PRIMARY]
+                                       ·  bootloader EEPROM BOOT_ORDER=0xf14  →  USB SSD first, SD fallback
+                                  SD card  (/dev/mmcblk0)        ←  cold boot fallback  [PRISTINE]
 ```
 
 Two independent access paths, both riding on Tailscale:
@@ -61,6 +69,57 @@ Two independent access paths, both riding on Tailscale:
 | **git + ssh (ed25519)** | Repo access / identity for the agent's work | `ssh-keygen` |
 | **nvm + Node.js** | Runtime the agent CLI depends on | `nvm-sh/nvm` installer |
 | **pi** (agent CLI) | The AI agent itself; config/auth at `~/.pi/agent/auth.json` | `pi.dev/install.sh` |
+| **External USB SSD** | Primary root + `/boot/firmware` (`/dev/sda`, Kingston A400 480 GB, USB 3.0/UAS). OS & agent state live here; SMART monitored by `smartd` (`smartctl -a -d sat /dev/sda`) | cloned from SD with `rpi-clone` |
+| **SD card + bootloader EEPROM** | SD (`/dev/mmcblk0`) kept as a cold boot fallback; `BOOT_ORDER=0xf14` boots the USB SSD first and only falls back to the SD if the SSD is absent or fails | `rpi-eeprom-config` |
+
+---
+
+## Storage & Boot — SSD primary, SD fallback
+
+The OS root filesystem and `/boot/firmware` live on an **external USB SSD**, not the SD card. Rationale: SD cards wear out and corrupt under the always-on write load of a root filesystem (logs, package state, the agent's own churn); an SSD is far more durable for this role. The original SD card stays in the slot as an automatic boot fallback.
+
+### Current layout
+
+| Device | Role | Partitions / FS | PARTUUID base |
+|---|---|---|---|
+| `/dev/sda` (Kingston A400 480 GB, USB 3.0/UAS) | **Primary** — boots & runs | `sda1` 512 MB vfat → `/boot/firmware`; `sda2` ~439 GB ext4 → `/` | `3205c043` |
+| `/dev/mmcblk0` (64 GB SD) | **Fallback** — boots only if SSD fails | identical layout, normally unmounted | `e4812140` |
+
+Each device carries its **own distinct partition UUIDs**, and each device's own `cmdline.txt` / `fstab` reference its own UUIDs — so the two never conflict regardless of which one boots.
+
+### Boot selection
+
+The Pi 4 bootloader EEPROM (`sudo rpi-eeprom-config`) is set to **`BOOT_ORDER=0xf14`** — read right-to-left that is: try **USB mass storage** (the SSD) first → then the **SD card** → then restart the sequence. A normal boot goes straight to the SSD; if the SSD is ever absent or fails to enumerate, the Pi automatically boots the SD fallback instead. No manual intervention.
+
+### Checking which device actually booted
+
+```bash
+findmnt -no SOURCE /                  # expect /dev/sda2 (SSD); /dev/mmcblk0p2 only on fallback
+cat /proc/cmdline | grep -o 'root=[^ ]*'   # expect root=PARTUUID=3205c043-02
+sudo rpi-eeprom-config | grep BOOT_ORDER   # expect 0xf14
+```
+
+### Re-cloning one device from the other
+
+`rpi-clone` (v2.0.22) is installed at `/usr/local/sbin/rpi-clone`. To refresh the **SD fallback** from the running SSD:
+
+```bash
+sudo rpi-clone mmcblk0 -U
+```
+
+To rebuild the **SSD** from the SD (e.g. after replacing the SSD), boot from the SD first, then run `sudo rpi-clone sda -f -U`.
+
+> ⚠️ **`cmdline.txt` caveat on this OS.** The FAT boot partition mounts at `/boot/firmware` (Debian 13 layout) and `/boot/cmdline.txt` is a *decoy stub* ("DO NOT EDIT … moved to /boot/firmware"). `rpi-clone` only edits `/boot/cmdline.txt`, so after a cross-device clone, **verify the freshly-cloned device's `/boot/firmware/cmdline.txt`** points its `root=PARTUUID=` at that device's *own* root partition (not the source's). `rpi-clone` does fix `/etc/fstab` correctly. If the cloned `cmdline.txt` is wrong, mount the target's boot partition and `sed` the PARTUUID.
+
+### SSD health monitoring
+
+`smartd` is enabled and logs SMART changes to the journal. The Realtek USB bridge needs SAT passthrough, so manual checks require `-d sat` (without it `smartctl` reports "Unknown USB bridge" — expected for this enclosure):
+
+```bash
+sudo smartctl -a -d sat /dev/sda            # full report
+sudo smartctl -H -d sat /dev/sda            # quick pass/fail
+sudo journalctl -u smartmontools.service    # what the daemon has logged
+```
 
 ---
 
@@ -201,6 +260,7 @@ Nothing to tear down at the end of a session — the Pi just keeps running.
 - **SSH key auth only**, no password auth.
 - **moshi-hook pairing token** — treat it like a credential. The token used during initial setup was pasted in plaintext into a shell session that got logged; **rotate it** if that history is retained anywhere outside this machine.
 - **`loginctl enable-linger`** keeps the bridge running without a logged-in session — verify this is scoped to the single `jolo` user, not broadened further.
+- **The SD card is a standby boot device, not spare storage** — `BOOT_ORDER=0xf14` boots it automatically if the SSD fails, so don't remove or repartition it assuming it's unused. See *Storage & Boot*.
 
 ---
 
